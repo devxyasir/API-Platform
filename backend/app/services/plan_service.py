@@ -168,13 +168,22 @@ async def set_features(session: AsyncSession, plan_id: str, features: dict[str, 
 
 async def set_models(session: AsyncSession, plan_id: str, models: list[str]) -> None:
     """Replace a plan's model allow-list (empty list = all models allowed)."""
-    existing = (
-        await session.execute(select(PlanModel).where(PlanModel.plan_id == plan_id))
-    ).scalars().all()
-    for row in existing:
-        await session.delete(row)
-    for public_id in dict.fromkeys(models):  # de-dupe, preserve order
-        session.add(PlanModel(plan_id=plan_id, model_public_id=public_id))
+    existing_map = {
+        r.model_public_id: r
+        for r in (await session.execute(select(PlanModel).where(PlanModel.plan_id == plan_id))).scalars()
+    }
+    wanted = list(dict.fromkeys(models))  # de-dupe, preserve order
+
+    # Drop removed models
+    for public_id, row in existing_map.items():
+        if public_id not in wanted:
+            await session.delete(row)
+
+    # Add only new models
+    for public_id in wanted:
+        if public_id not in existing_map:
+            session.add(PlanModel(plan_id=plan_id, model_public_id=public_id))
+
     await session.flush()
 
 

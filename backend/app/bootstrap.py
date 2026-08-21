@@ -43,12 +43,52 @@ DEFAULT_MODELS = [
         "description": "Legacy fast model.",
     },
     {
-        "public_id": "notrack-c", "display_name": "BH-9 (BlackHat-9)", "provider": "notrack",
+        "public_id": "bh-9", "display_name": "BH-9 (Standard)", "provider": "notrack",
         "upstream_model": "C",
-        "aliases": ["notrack", "bh-9", "blackhat-9"], "context_window": 262144,
+        "aliases": ["notrack", "notrack-c", "blackhat-9"], "context_window": 262144,
         "input_price_per_1m": 0.0, "output_price_per_1m": 0.0,
         "public_chat": False, "supports_vision": False,
-        "description": "Unrestricted high-performance model served via devxyasir platform.",
+        "description": "Standard balanced BH-9 model.",
+    },
+    {
+        "public_id": "bh-9-creative", "display_name": "BH-9 (Creative)", "provider": "notrack",
+        "upstream_model": "C",
+        "aliases": ["notrack-creative"], "context_window": 262144,
+        "input_price_per_1m": 0.0, "output_price_per_1m": 0.0,
+        "public_chat": False, "supports_vision": False,
+        "description": "Creative and expressive style for storytelling and conceptual design.",
+    },
+    {
+        "public_id": "bh-9-detailed", "display_name": "BH-9 (Detailed)", "provider": "notrack",
+        "upstream_model": "C",
+        "aliases": ["notrack-detailed"], "context_window": 262144,
+        "input_price_per_1m": 0.0, "output_price_per_1m": 0.0,
+        "public_chat": False, "supports_vision": False,
+        "description": "Comprehensive, deep technical breakdown and exhaustive output.",
+    },
+    {
+        "public_id": "bh-9-shorter", "display_name": "BH-9 (Shorter / Concise)", "provider": "notrack",
+        "upstream_model": "C",
+        "aliases": ["notrack-shorter", "notrack-concise", "bh-9-concise"], "context_window": 262144,
+        "input_price_per_1m": 0.0, "output_price_per_1m": 0.0,
+        "public_chat": False, "supports_vision": False,
+        "description": "Ultra-terse, direct to the point, minimal tokens, zero fluff.",
+    },
+    {
+        "public_id": "bh-9-high", "display_name": "BH-9 (High Reasoning)", "provider": "notrack",
+        "upstream_model": "C",
+        "aliases": ["notrack-high", "notrack-deep", "bh-9-deep"], "context_window": 262144,
+        "input_price_per_1m": 0.0, "output_price_per_1m": 0.0,
+        "public_chat": False, "supports_vision": False,
+        "description": "Deep multi-pass reasoning and rigorous analysis.",
+    },
+    {
+        "public_id": "notrack-c", "display_name": "NoTrack C", "provider": "notrack",
+        "upstream_model": "C",
+        "aliases": ["notrack-default"], "context_window": 262144,
+        "input_price_per_1m": 0.0, "output_price_per_1m": 0.0,
+        "public_chat": False, "supports_vision": False,
+        "description": "Legacy public ID mapped to NoTrack C.",
     },
 ]
 
@@ -69,7 +109,7 @@ DEFAULT_PLANS = [
                    "concurrency": 3, "monthly_token_quota": 1_000_000, "monthly_chat_messages": 200},
         "features": {"support": "community", "analytics_retention_days": 7,
                      "byok": False, "priority_routing": False, "sla": None, "chat_enabled": True},
-        "models": ["gpt-4o-mini", "gpt-3.5-turbo", "notrack-c"],
+        "models": ["gpt-4o-mini", "gpt-3.5-turbo", "bh-9", "bh-9-creative", "bh-9-detailed", "bh-9-shorter", "bh-9-high", "notrack-c"],
     },
     {
         "slug": "starter", "name": "Starter", "sort_order": 20,
@@ -183,13 +223,17 @@ async def seed_model_prices(session: AsyncSession) -> None:
 
 async def seed_plans(session: AsyncSession) -> None:
     """Create the default subscription plans with their limits, features, and model access.
-    Idempotent: only creates plans whose slug is not already present."""
-    existing = set(
-        (await session.execute(select(Plan.slug))).scalars().all()
-    )
+    Idempotent: only creates plans whose slug is not already present, and syncs allowed models."""
+    existing_plans = {
+        p.slug: p
+        for p in (await session.execute(select(Plan))).scalars().all()
+    }
     created = 0
     for spec in DEFAULT_PLANS:
-        if spec["slug"] in existing:
+        if spec["slug"] in existing_plans:
+            plan = existing_plans[spec["slug"]]
+            if "models" in spec and spec["models"]:
+                await plan_service.set_models(session, plan.id, spec["models"])
             continue
         plan = Plan(
             slug=spec["slug"],
