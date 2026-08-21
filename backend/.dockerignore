@@ -1,0 +1,19 @@
+# Keep the build context small and free of local state.
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Local databases (SQLite + WAL sidecars) — never bake these into the image.
+*.db
+*.db-shm
+*.db-wal
+
+# Local secrets — provided at runtime via env_file / environment instead.
+.env
+
+# Alembic scratch DB used during migration authoring.
+_alembic_tmp.db

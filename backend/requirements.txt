@@ -1,0 +1,38 @@
+# Backend dependencies — pinned as ranges so pip fetches prebuilt wheels for the
+# running Python (important on very new interpreters like 3.14, where old pins
+# would otherwise try — and fail — to compile from source).
+#
+# The default local stack (SQLite + in-memory rate limiting) needs only what's
+# listed here. Postgres / faster tokenizing live in requirements-optional.txt.
+
+# --- Web framework ---
+fastapi>=0.115.6,<1.0
+# Plain uvicorn (no [standard]): avoids compiling httptools/uvloop/watchfiles.
+# --reload still works via uvicorn's stat-based fallback reloader.
+uvicorn>=0.34.0,<1.0
+python-multipart>=0.0.20
+
+# --- Data / validation ---
+pydantic>=2.11,<3.0          # 2.11+ ships cp314 wheels for pydantic-core
+pydantic-settings>=2.7,<3.0
+email-validator>=2.2.0
+
+# --- Database ---
+SQLAlchemy>=2.0.41,<2.1      # 2.0.41+ ships cp314 wheels
+alembic>=1.14.0,<2.0
+aiosqlite>=0.20.0            # async SQLite (default local driver)
+
+# --- HTTP client (upstream provider calls) ---
+httpx>=0.28.1,<1.0
+
+# --- Auth / security ---
+PyJWT>=2.10.1,<3.0
+bcrypt>=4.2,<5.0             # ships abi3 wheels (works on 3.14)
+cryptography>=44,<47        # AES-GCM payload envelope (cp311-abi3 wheels run on 3.14)
+
+# --- Cache / rate limiting (optional at runtime; falls back to in-memory) ---
+redis>=5.2.1,<6.0
+
+# --- Testing ---
+pytest>=8.3.4
+pytest-asyncio>=0.25.0

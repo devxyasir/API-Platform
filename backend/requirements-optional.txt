@@ -1,0 +1,24 @@
+# Optional dependencies — install only if you need them.
+#
+#   pip install -r requirements-optional.txt
+#
+# These have C/Rust extensions. On a brand-new Python where prebuilt wheels
+# aren't published yet, installing them may require a working C/C++ (MSVC on
+# Windows) and/or Rust toolchain. The app runs fine without them:
+#   - Postgres  -> without asyncpg, use the default SQLite DATABASE_URL.
+#   - tiktoken  -> token counts fall back to a fast heuristic estimate.
+
+# PostgreSQL async driver (set DATABASE_URL=postgresql+asyncpg://... to use).
+asyncpg>=0.30.0
+
+# Sync driver for running Alembic migrations against Postgres.
+psycopg2-binary>=2.9.10
+
+# Exact tokenizer for token accounting (otherwise a ~4-chars/token heuristic).
+tiktoken>=0.9.0
+
+# Chat attachments: converts PDF/Office/HTML/CSV/images to Markdown text that is fed
+# to the model as context (no vision needed on that path). Pulls large transitive
+# parsers and may lack prebuilt wheels on brand-new interpreters. The app runs fine
+# without it — the chat surface reports "attachments disabled" and text chat still works.
+markitdown>=0.0.1a2
