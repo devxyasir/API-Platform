@@ -91,30 +91,47 @@ class NotrackProvider(LLMProvider):
         if not tools and not functions:
             return ""
 
-        tool_descriptions: list[str] = []
+        tool_signatures: list[str] = []
         for t in tools:
             if isinstance(t, dict):
                 fn = t.get("function", t)
                 name = fn.get("name", "tool")
-                desc = fn.get("description", "")
-                params = fn.get("parameters", {})
-                tool_descriptions.append(f"- {name}: {desc}\n  Parameters: {json.dumps(params)}")
+                desc = (fn.get("description") or "").split("\n")[0].split(". ")[0].strip()
+                props = fn.get("parameters", {}).get("properties", {})
+                req = set(fn.get("parameters", {}).get("required", []))
+                param_strs = [
+                    f"{p_name}: {p_spec.get('type', 'any')}" if p_name in req else f"{p_name}?: {p_spec.get('type', 'any')}"
+                    for p_name, p_spec in props.items()
+                ]
+                sig = f"- `{name}({', '.join(param_strs)})`"
+                if desc:
+                    sig += f": {desc}"
+                tool_signatures.append(sig)
+
         for f in functions:
             if isinstance(f, dict):
                 name = f.get("name", "function")
-                desc = f.get("description", "")
-                params = f.get("parameters", {})
-                tool_descriptions.append(f"- {name}: {desc}\n  Parameters: {json.dumps(params)}")
+                desc = (f.get("description") or "").split("\n")[0].split(". ")[0].strip()
+                props = f.get("parameters", {}).get("properties", {})
+                req = set(f.get("parameters", {}).get("required", []))
+                param_strs = [
+                    f"{p_name}: {p_spec.get('type', 'any')}" if p_name in req else f"{p_name}?: {p_spec.get('type', 'any')}"
+                    for p_name, p_spec in props.items()
+                ]
+                sig = f"- `{name}({', '.join(param_strs)})`"
+                if desc:
+                    sig += f": {desc}"
+                tool_signatures.append(sig)
 
-        if tool_descriptions:
-            return "Available Tools / Functions:\n" + "\n".join(tool_descriptions)
+        if tool_signatures:
+            return "Available Tools:\n" + "\n".join(tool_signatures)
         return ""
 
     def _format_prompt(
         self, messages: list[dict[str, Any]], payload: dict[str, Any] | None = None
     ) -> str:
-        """Combine base persona (from config), caller agent system instructions, tool definitions,
-        and conversation history into a unified prompt passed to the notrack dispatch endpoint."""
+        """Combine base persona (from config), compact tool signatures,
+        and conversation history into a unified prompt safely budgeted for notrack's 4000 char limit."""
         system_prompts: list[str] = []
         dialogue: list[dict[str, str]] = []
 
@@ -130,11 +147,16 @@ class NotrackProvider(LLMProvider):
             if not content:
                 continue
             if role == "system":
-                system_prompts.append(content)
+                # For very long system prompts (e.g. OpenCode CLI rules), extract key instructions
+                if len(content) > 600:
+                    summary_lines = [line.strip() for line in content.splitlines() if line.strip() and not line.strip().startswith("<")][:6]
+                    system_prompts.append("Agent Guidelines:\n" + "\n".join(summary_lines))
+                else:
+                    system_prompts.append(content)
             elif role in ("user", "assistant"):
                 dialogue.append({"role": role, "content": content})
 
-        # 3. Include any tool definitions declared by the agent
+        # 3. Include compact tool definitions declared by the agent
         if payload:
             tools_desc = self._format_tools(payload)
             if tools_desc:
@@ -146,27 +168,71 @@ class NotrackProvider(LLMProvider):
         if len(dialogue) == 1 and dialogue[0]["role"] == "user":
             user_text = dialogue[0]["content"]
             if system_instruction:
-                return f"[System Instructions:\n{system_instruction}]\n\n{user_text}"
-            return user_text
+                formatted = f"[System Instructions:\n{system_instruction}]\n\n{user_text}"
+            else:
+                formatted = user_text
+        else:
+            # Multi-turn history: Keep the most recent turns that fit budget
+            recent_dialogue = dialogue[-6:] if len(dialogue) > 6 else dialogue
+            dialogue_lines: list[str] = []
+            for msg in recent_dialogue:
+                speaker = "User" if msg["role"] == "user" else "Assistant"
+                # Trim overly long assistant outputs in history
+                turn_content = msg["content"]
+                if len(turn_content) > 500:
+                    turn_content = turn_content[:500] + "... [truncated]"
+                dialogue_lines.append(f"{speaker}: {turn_content}")
 
-        # If multi-turn conversation history is present:
-        dialogue_lines: list[str] = []
-        for msg in dialogue:
-            speaker = "User" if msg["role"] == "user" else "Assistant"
-            dialogue_lines.append(f"{speaker}: {msg['content']}")
+            dialogue_text = "\n\n".join(dialogue_lines)
+            if system_instruction:
+                formatted = f"[System Instructions:\n{system_instruction}]\n\n{dialogue_text}"
+            else:
+                formatted = dialogue_text or (system_instruction if system_instruction else "")
 
-        dialogue_text = "\n\n".join(dialogue_lines)
-        if system_instruction:
-            return f"[System Instructions:\n{system_instruction}]\n\n{dialogue_text}"
-        return dialogue_text or (system_instruction if system_instruction else "")
+        # Strict safety cap: Upstream notrack.ai enforces max 4000 chars on user_input
+        max_limit = 3900
+        if len(formatted) > max_limit:
+            # Keep user text intact, truncate system instructions from head
+            last_turn = dialogue[-1]["content"] if dialogue else ""
+            avail_for_sys = max(100, max_limit - len(last_turn) - 40)
+            trimmed_sys = system_instruction[:avail_for_sys].rsplit("\n", 1)[0]
+            formatted = f"[System Instructions:\n{trimmed_sys}]\n\nUser: {last_turn}"
+            if len(formatted) > max_limit:
+                formatted = formatted[:max_limit]
+
+        return formatted
+
+    def _resolve_persona_and_mode(self, request: ChatRequest) -> tuple[str, str, int]:
+        model_name = (request.model_public or "").lower()
+        payload = request.payload or {}
+
+        persona = payload.get("persona") or settings.notrack_persona
+        mode = payload.get("mode") or settings.notrack_mode
+        max_turns = payload.get("max_turns") or settings.notrack_max_turns
+
+        if "creative" in model_name or payload.get("style") == "creative":
+            persona = "creative"
+        elif "detailed" in model_name or payload.get("style") == "detailed":
+            persona = "detailed"
+        elif "shorter" in model_name or "concise" in model_name or payload.get("style") in ("shorter", "concise"):
+            persona = "concise"
+        elif "high" in model_name or payload.get("reasoning_effort") == "high":
+            mode = "debate"
+            max_turns = max(max_turns, 8)
+
+        if persona == "shorter":
+            persona = "concise"
+
+        return persona, mode, max_turns
 
     def _build_body(self, request: ChatRequest) -> dict[str, Any]:
+        persona, mode, max_turns = self._resolve_persona_and_mode(request)
         body: dict[str, Any] = {
             "user_input": self._format_prompt(request.messages, request.payload),
-            "mode": settings.notrack_mode,
-            "model": request.model_upstream,
-            "persona": settings.notrack_persona,
-            "max_turns": settings.notrack_max_turns,
+            "mode": mode,
+            "model": request.model_upstream or "C",
+            "persona": persona,
+            "max_turns": max_turns,
             "chat_id": None,
             "attachments": [],
             "regenerate": False,
@@ -186,10 +252,16 @@ class NotrackProvider(LLMProvider):
         try:
             data = json.loads(body_text)
             err = data.get("error", data)
-            message = err.get("message", message)
+            message = err.get("message") or err.get("content") or message
             code = err.get("code") or err.get("type")
         except (json.JSONDecodeError, AttributeError):
-            pass
+            events = self._parse_event_lines(body_text)
+            for ev in events:
+                if ev.get("type") == "error":
+                    message = ev.get("content") or ev.get("message") or message
+                    code = "upstream_error"
+                    break
+
         retryable = resp.status_code in (429, 500, 502, 503, 504)
         raise UpstreamError(
             message,

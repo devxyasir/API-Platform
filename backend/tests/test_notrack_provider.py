@@ -223,7 +223,7 @@ async def test_chat_with_agent_system_prompt_and_tools():
 
     user_input = captured["body"]["user_input"]
     assert "You are OpenCode coding agent." in user_input
-    assert "edit_file: Edit lines in a file" in user_input
+    assert "edit_file(path?: string)" in user_input
     assert "Refactor auth logic" in user_input
 
 
