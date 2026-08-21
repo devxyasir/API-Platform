@@ -10,6 +10,10 @@ title GitHub 20-Feature Granular Publisher
 chcp 65001 >nul 2>&1
 color 0B
 
+:: Disable interactive Git pagers (prevents "(END)" hangs in batch execution)
+set "GIT_PAGER=cat"
+set "PAGER=cat"
+
 echo.
 echo ===============================================================================
 echo            API PLATFORM - 20 GRANULAR FEATURE-BY-FEATURE PUBLISHER            
@@ -101,7 +105,7 @@ call :commit_and_push "chore(infra): add project configuration, docker-compose, 
 :: [02/20] Documentation
 :: ----------------------------------------------------------------------------
 call :prepare_group "02/20" "System Architecture and Design Documentation"
-git add README.md admin-design.md 2>nul
+git add README.md admin-design.md CHAT_PRODUCT_STATUS.md 2>nul
 call :commit_and_push "docs: add comprehensive system architecture and admin design documentation"
 
 :: ----------------------------------------------------------------------------
@@ -185,7 +189,7 @@ call :commit_and_push "feat(backend-providers): implement AI model services, tok
 :: [14/20] Backend API Endpoints & Main Router
 :: ----------------------------------------------------------------------------
 call :prepare_group "14/20" "Backend API Endpoints and Routing"
-git add backend/app/api backend/app/bootstrap.py backend/app/__init__.py backend/app/main.py 2>nul
+git add backend/app/api backend/app/dependencies.py backend/app/bootstrap.py backend/app/__init__.py backend/app/main.py 2>nul
 call :commit_and_push "feat(backend-api): implement API endpoints for v1 chat, account, and admin routes"
 
 :: ----------------------------------------------------------------------------
@@ -243,7 +247,7 @@ echo               ALL 20 FEATURES HAVE BEEN COMMITTED AND PUSHED!
 echo ===============================================================================
 echo.
 echo Latest 20 commits:
-git log --oneline -n 20
+git --no-pager log --oneline -n 20
 echo.
 echo View your repository commit history on GitHub:
 echo %REMOTE_URL%
@@ -270,7 +274,7 @@ set "COMMIT_MSG=%~1"
 git diff --cached --quiet
 if errorlevel 1 (
     echo Files to commit:
-    git diff --cached --name-status
+    git --no-pager diff --cached --name-status
     echo.
     if "%INTERACTIVE%"=="1" (
         set "CONFIRM=y"
@@ -310,83 +314,83 @@ echo ===========================================================================
 echo.
 
 echo [01/20] Infrastructure and Startup Scripts:
-git status --porcelain .gitignore docker-compose.yml start.bat start-dev.bat push_features.bat
+git --no-pager status --porcelain .gitignore docker-compose.yml start.bat start-dev.bat push_features.bat
 
 echo.
 echo [02/20] System Architecture and Design Documentation:
-git status --porcelain README.md admin-design.md
+git --no-pager status --porcelain README.md admin-design.md CHAT_PRODUCT_STATUS.md
 
 echo.
 echo [03/20] Backend Core Setup and Utilities:
-git status --porcelain backend/.dockerignore backend/.env.example backend/Dockerfile backend/docker-entrypoint.sh backend/requirements.txt backend/requirements-optional.txt backend/run.py backend/pytest.ini backend/app/config.py backend/app/logging_config.py backend/app/errors.py backend/app/utils
+git --no-pager status --porcelain backend/.dockerignore backend/.env.example backend/Dockerfile backend/docker-entrypoint.sh backend/requirements.txt backend/requirements-optional.txt backend/run.py backend/pytest.ini backend/app/config.py backend/app/logging_config.py backend/app/errors.py backend/app/utils
 
 echo.
 echo [04/20] Database Engine and Migrations:
-git status --porcelain backend/alembic.ini backend/alembic backend/app/database.py
+git --no-pager status --porcelain backend/alembic.ini backend/alembic backend/app/database.py
 
 echo.
 echo [05/20] Core Identity and Organization ORM Models:
-git status --porcelain backend/app/models/base.py backend/app/models/user.py backend/app/models/organization.py backend/app/models/project.py backend/app/models/api_key.py backend/app/models/user_settings.py backend/app/models/enums.py
+git --no-pager status --porcelain backend/app/models/base.py backend/app/models/user.py backend/app/models/organization.py backend/app/models/project.py backend/app/models/api_key.py backend/app/models/user_settings.py backend/app/models/enums.py
 
 echo.
 echo [06/20] Billing, Plans and Pricing ORM Models:
-git status --porcelain backend/app/models/plan.py backend/app/models/subscription.py backend/app/models/credit.py backend/app/models/billing.py backend/app/models/pricing.py
+git --no-pager status --porcelain backend/app/models/plan.py backend/app/models/subscription.py backend/app/models/credit.py backend/app/models/billing.py backend/app/models/pricing.py
 
 echo.
 echo [07/20] Chat, Provider Config and Governance ORM Models:
-git status --porcelain backend/app/models/conversation.py backend/app/models/memory.py backend/app/models/model.py backend/app/models/provider_config.py backend/app/models/rate_limit.py backend/app/models/request_log.py backend/app/models/governance.py backend/app/models/audit.py backend/app/models/security.py backend/app/models/usage.py backend/app/models/__init__.py
+git --no-pager status --porcelain backend/app/models/conversation.py backend/app/models/memory.py backend/app/models/model.py backend/app/models/provider_config.py backend/app/models/rate_limit.py backend/app/models/request_log.py backend/app/models/governance.py backend/app/models/audit.py backend/app/models/security.py backend/app/models/usage.py backend/app/models/__init__.py
 
 echo.
 echo [08/20] Pydantic Validation Schemas:
-git status --porcelain backend/app/schemas
+git --no-pager status --porcelain backend/app/schemas
 
 echo.
 echo [09/20] Authentication, Security and Middleware Envelopes:
-git status --porcelain backend/app/auth backend/app/middleware backend/app/dependencies.py
+git --no-pager status --porcelain backend/app/auth backend/app/middleware backend/app/dependencies.py
 
 echo.
 echo [10/20] Rate Limiting, Workers and Analytics Service:
-git status --porcelain backend/app/rate_limit backend/app/workers backend/app/analytics
+git --no-pager status --porcelain backend/app/rate_limit backend/app/workers backend/app/analytics
 
 echo.
 echo [11/20] Identity, Organization, Project and Audit Services:
-git status --porcelain backend/app/services/user_service.py backend/app/services/user_settings_service.py backend/app/services/organization_service.py backend/app/services/project_service.py backend/app/services/api_key_service.py backend/app/services/audit_service.py backend/app/services/security_service.py backend/app/services/risk_service.py backend/app/services/admin_service.py
+git --no-pager status --porcelain backend/app/services/user_service.py backend/app/services/user_settings_service.py backend/app/services/organization_service.py backend/app/services/project_service.py backend/app/services/api_key_service.py backend/app/services/audit_service.py backend/app/services/security_service.py backend/app/services/risk_service.py backend/app/services/admin_service.py
 
 echo.
 echo [12/20] Billing, Plans, Credits and Quota Services:
-git status --porcelain backend/app/services/billing_service.py backend/app/services/credit_service.py backend/app/services/plan_service.py backend/app/services/pricing_service.py backend/app/services/quota_service.py backend/app/services/subscription_service.py backend/app/services/limit_service.py backend/app/services/limits_resolver.py backend/app/services/usage_service.py
+git --no-pager status --porcelain backend/app/services/billing_service.py backend/app/services/credit_service.py backend/app/services/plan_service.py backend/app/services/pricing_service.py backend/app/services/quota_service.py backend/app/services/subscription_service.py backend/app/services/limit_service.py backend/app/services/limits_resolver.py backend/app/services/usage_service.py
 
 echo.
 echo [13/20] AI Model Engine and Multi-Provider Adapters:
-git status --porcelain backend/app/services/chat_service.py backend/app/services/conversation_service.py backend/app/services/embedding_service.py backend/app/services/model_service.py backend/app/services/request_logger.py backend/app/services/tokenizer.py backend/app/services/__init__.py backend/app/providers
+git --no-pager status --porcelain backend/app/services/chat_service.py backend/app/services/conversation_service.py backend/app/services/embedding_service.py backend/app/services/model_service.py backend/app/services/request_logger.py backend/app/services/tokenizer.py backend/app/services/__init__.py backend/app/providers
 
 echo.
 echo [14/20] Backend API Endpoints and Routing:
-git status --porcelain backend/app/api backend/app/bootstrap.py backend/app/__init__.py backend/app/main.py
+git --no-pager status --porcelain backend/app/api backend/app/bootstrap.py backend/app/__init__.py backend/app/main.py
 
 echo.
 echo [15/20] Test Suite and OpenAPI Specification:
-git status --porcelain backend/openapi.json backend/tests
+git --no-pager status --porcelain backend/openapi.json backend/tests
 
 echo.
 echo [16/20] Frontend Client Portal Setup and UI Core:
-git status --porcelain frontend/package.json frontend/package-lock.json frontend/tsconfig.json frontend/tailwind.config.ts frontend/postcss.config.mjs frontend/next.config.mjs frontend/next-env.d.ts frontend/Dockerfile frontend/.dockerignore frontend/.env.local.example frontend/.gitignore frontend/public frontend/lib frontend/components frontend/app/layout.tsx frontend/app/globals.css frontend/app/page.tsx frontend/app/login
+git --no-pager status --porcelain frontend/package.json frontend/package-lock.json frontend/tsconfig.json frontend/tailwind.config.ts frontend/postcss.config.mjs frontend/next.config.mjs frontend/next-env.d.ts frontend/Dockerfile frontend/.dockerignore frontend/.env.local.example frontend/.gitignore frontend/public frontend/lib frontend/components frontend/app/layout.tsx frontend/app/globals.css frontend/app/page.tsx frontend/app/login
 
 echo.
 echo [17/20] Frontend Client Dashboard Feature Pages:
-git status --porcelain frontend/app/(dashboard)
+git --no-pager status --porcelain frontend/app/(dashboard)
 
 echo.
 echo [18/20] Frontend Admin Portal Setup and UI Core:
-git status --porcelain frontend-admin/package.json frontend-admin/package-lock.json frontend-admin/tsconfig.json frontend-admin/tailwind.config.ts frontend-admin/postcss.config.mjs frontend-admin/next.config.mjs frontend-admin/next-env.d.ts frontend-admin/Dockerfile frontend-admin/.dockerignore frontend-admin/.env.local.example frontend-admin/public frontend-admin/lib frontend-admin/components frontend-admin/app/layout.tsx frontend-admin/app/globals.css frontend-admin/app/page.tsx frontend-admin/app/login
+git --no-pager status --porcelain frontend-admin/package.json frontend-admin/package-lock.json frontend-admin/tsconfig.json frontend-admin/tailwind.config.ts frontend-admin/postcss.config.mjs frontend-admin/next.config.mjs frontend-admin/next-env.d.ts frontend-admin/Dockerfile frontend-admin/.dockerignore frontend-admin/.env.local.example frontend-admin/public frontend-admin/lib frontend-admin/components frontend-admin/app/layout.tsx frontend-admin/app/globals.css frontend-admin/app/page.tsx frontend-admin/app/login
 
 echo.
 echo [19/20] Frontend Admin Management Pages:
-git status --porcelain frontend-admin/app/(dashboard)/layout.tsx frontend-admin/app/(dashboard)/overview frontend-admin/app/(dashboard)/users frontend-admin/app/(dashboard)/organizations frontend-admin/app/(dashboard)/projects frontend-admin/app/(dashboard)/plans frontend-admin/app/(dashboard)/subscriptions frontend-admin/app/(dashboard)/credits frontend-admin/app/(dashboard)/invoices
+git --no-pager status --porcelain frontend-admin/app/(dashboard)/layout.tsx frontend-admin/app/(dashboard)/overview frontend-admin/app/(dashboard)/users frontend-admin/app/(dashboard)/organizations frontend-admin/app/(dashboard)/projects frontend-admin/app/(dashboard)/plans frontend-admin/app/(dashboard)/subscriptions frontend-admin/app/(dashboard)/credits frontend-admin/app/(dashboard)/invoices
 
 echo.
 echo [20/20] Frontend Admin Governance and Observability Pages:
-git status --porcelain frontend-admin/app/(dashboard)/models frontend-admin/app/(dashboard)/provider frontend-admin/app/(dashboard)/rate-limits frontend-admin/app/(dashboard)/api-keys frontend-admin/app/(dashboard)/requests frontend-admin/app/(dashboard)/analytics frontend-admin/app/(dashboard)/usage frontend-admin/app/(dashboard)/audit frontend-admin/app/(dashboard)/security frontend-admin/app/(dashboard)/risk frontend-admin/app/(dashboard)/health frontend-admin/app/(dashboard)/settings
+git --no-pager status --porcelain frontend-admin/app/(dashboard)/models frontend-admin/app/(dashboard)/provider frontend-admin/app/(dashboard)/rate-limits frontend-admin/app/(dashboard)/api-keys frontend-admin/app/(dashboard)/requests frontend-admin/app/(dashboard)/analytics frontend-admin/app/(dashboard)/usage frontend-admin/app/(dashboard)/audit frontend-admin/app/(dashboard)/security frontend-admin/app/(dashboard)/risk frontend-admin/app/(dashboard)/health frontend-admin/app/(dashboard)/settings
 
 echo.
 echo Dry-run preview of 20 feature groups complete.
