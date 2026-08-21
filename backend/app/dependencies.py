@@ -56,12 +56,32 @@ class AuthContext:
 
 
 def _extract_api_key(request: Request) -> str | None:
+    """Pull the caller's API key from the request headers, as leniently as is safe.
+
+    Accepts, in order of preference:
+      * ``Authorization: Bearer <key>``  — OpenAI-style (what most SDKs/coding agents send)
+      * ``Authorization: <key>``          — the raw key with no scheme, for tools that pass
+        the key verbatim without wrapping it in ``Bearer``
+      * ``x-api-key: <key>``              — Anthropic-style
+      * ``api-key: <key>``                — Azure-style
+
+    The value is looked up by hash regardless of prefix, so a stray scheme word never matters
+    for a genuinely valid key.
+    """
     auth = request.headers.get("authorization")
-    if auth and auth.lower().startswith("bearer "):
-        return auth[7:].strip()
-    xkey = request.headers.get("x-api-key")  # Anthropic-style
-    if xkey:
-        return xkey.strip()
+    if auth:
+        token = auth.strip()
+        # Split a leading scheme word: "Bearer <key>" -> "<key>". Anything else (incl. a raw
+        # key with no scheme) is used verbatim. A bare "Bearer" with no key yields "".
+        first, _, rest = token.partition(" ")
+        if first.lower() == "bearer":
+            token = rest.strip()
+        if token:
+            return token
+    for header in ("x-api-key", "api-key"):
+        val = request.headers.get(header)
+        if val and val.strip():
+            return val.strip()
     return None
 
 
@@ -110,7 +130,8 @@ async def get_api_context(
     raw = _extract_api_key(request)
     if not raw:
         raise AuthenticationError(
-            "Missing API key. Provide it as 'Authorization: Bearer sk_live_...'.",
+            "Missing API key. Send it in the 'Authorization' header (with or without a "
+            "'Bearer ' prefix) or as 'x-api-key'.",
             code="missing_api_key",
         )
 
