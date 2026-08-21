@@ -1,0 +1,120 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── "Night sands" theme ─────────────────────────────────────────────────
+   The same four brand swatches drive both modes:
+   #FAE8B4 cream · #CBBD93 sand · #80775C olive-gray · #574A24 deep olive
+   Colors are exposed as raw RGB channels (not hex) so Tailwind's opacity
+   modifiers keep working — e.g. `bg-sand-900/60` → rgb(var(--sand-900)/0.6).
+   Light/dark is a straight remap of those channels, switched by the
+   data-theme attribute on <html>; every component is written in terms of the
+   four sand tokens semantically (50 = brightest fg, 900 = deepest bg), so
+   inverting the ramp flips the whole UI without touching a single view.     */
+
+/* Dark (default): deep-olive night, cream + sand foreground. */
+:root,
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --sand-50: 250 232 180; /* cream — primary text, CTA fill, brightest */
+  --sand-200: 203 189 147; /* sand — secondary text, accents */
+  --sand-500: 128 119 92; /* olive-gray — borders, faint text */
+  --sand-900: 87 74 36; /* deep olive — page background, deepest */
+  --c-bg: 87 74 36;
+  --c-panel: 94 80 41;
+  --c-panel2: 106 91 48;
+  --c-border: 128 119 92;
+  --c-muted: 203 189 147;
+  --c-faint: 128 119 92;
+  --c-text: 250 232 180;
+  --c-brand: 250 232 180;
+  --c-accent: 203 189 147;
+}
+
+/* Light: warm cream day, deep-olive foreground. Elevation reads brighter,
+   mirroring the dark mode's logic (bg darkest, panels lighter). */
+:root[data-theme="light"] {
+  color-scheme: light;
+  --sand-50: 87 74 36; /* brightest fg → now the deep olive (primary text) */
+  --sand-200: 110 97 66; /* secondary text / accents */
+  --sand-500: 128 119 92; /* borders / faint text — the mid olive, unchanged */
+  --sand-900: 231 217 168; /* deepest bg → now a recessed light sand */
+  --c-bg: 239 227 188; /* page background */
+  --c-panel: 247 239 211; /* cards, sidebar, header */
+  --c-panel2: 252 246 224; /* elevated surfaces / ghost buttons */
+  --c-border: 128 119 92;
+  --c-muted: 110 97 66;
+  --c-faint: 128 119 92;
+  --c-text: 87 74 36;
+  --c-brand: 87 74 36;
+  --c-accent: 128 119 92;
+}
+
+html,
+body {
+  padding: 0;
+  margin: 0;
+  background: rgb(var(--c-bg));
+  color: rgb(var(--c-text));
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    Helvetica, Arial, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+/* Warm scrollbars in the olive family. */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: rgb(var(--c-faint));
+  border-radius: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::selection {
+  background: rgb(var(--sand-200));
+  color: rgb(var(--sand-900));
+}
+
+@layer components {
+  .card {
+    @apply bg-panel border border-sand-500/45 rounded-xl;
+  }
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  /* Cream call-to-action on the dark night background (a deep-olive fill on light). */
+  .btn-primary {
+    @apply btn bg-sand-50 text-sand-900 hover:bg-sand-200;
+  }
+  .btn-ghost {
+    @apply btn bg-panel2 text-sand-50 border border-sand-500/50 hover:border-sand-200;
+  }
+  /* No red in-palette — "destructive" reads as an olive outline that fills on hover. */
+  .btn-danger {
+    @apply btn bg-transparent text-sand-50 border border-sand-500 hover:bg-sand-500/30;
+  }
+  .input {
+    @apply w-full rounded-lg bg-sand-900/60 border border-sand-500/60 px-3 py-2 text-sm text-sand-50 placeholder:text-sand-500 focus:outline-none focus:border-sand-200;
+  }
+  .label {
+    @apply block text-xs font-medium text-sand-200 mb-1;
+  }
+  .th {
+    @apply text-left text-xs font-semibold uppercase tracking-wide text-sand-200 px-3 py-2 border-b border-sand-500/45;
+  }
+  .td {
+    @apply px-3 py-2 text-sm border-b border-sand-500/25 align-top;
+  }
+}
