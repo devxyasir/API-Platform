@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from functools import lru_cache
+from pathlib import Path
 from typing import Literal
 
 from pydantic import Field, field_validator
@@ -52,6 +53,27 @@ class Settings(BaseSettings):
     notrack_persona: str = "normal"
     notrack_max_turns: int = 6
     notrack_system_prompt: str | None = None
+    notrack_system_prompt_file: str | None = "notrack_prompt.md"
+
+    def get_notrack_system_prompt(self) -> str | None:
+        """Load notrack system prompt from markdown file (if present) or from env string,
+        un-escaping literal newlines for multiline markdown formatting."""
+        if self.notrack_system_prompt_file:
+            path = Path(self.notrack_system_prompt_file)
+            if not path.is_absolute():
+                path = Path(__file__).resolve().parent.parent / self.notrack_system_prompt_file
+            if path.exists() and path.is_file():
+                try:
+                    content = path.read_text(encoding="utf-8").strip()
+                    if content:
+                        return content
+                except Exception:
+                    pass
+
+        if self.notrack_system_prompt:
+            return self.notrack_system_prompt.replace("\\n", "\n").strip()
+
+        return None
 
     # --- Privacy / logging ---
     log_request_content: bool = False

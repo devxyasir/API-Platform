@@ -117,9 +117,10 @@ class NotrackProvider(LLMProvider):
         system_prompts: list[str] = []
         dialogue: list[dict[str, str]] = []
 
-        # 1. Base system prompt from backend configuration (.env)
-        if settings.notrack_system_prompt:
-            system_prompts.append(settings.notrack_system_prompt.strip())
+        # 1. Base system prompt from backend configuration (.env or markdown file)
+        base_prompt = settings.get_notrack_system_prompt()
+        if base_prompt:
+            system_prompts.append(base_prompt)
 
         # 2. Extract caller agent's system prompts and user/assistant dialogue turns
         for msg in messages:
