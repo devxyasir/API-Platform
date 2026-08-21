@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import AsyncIterator
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -214,6 +215,43 @@ class NotrackProvider(LLMProvider):
                 logger.warning("malformed_sse_chunk")
         return events
 
+    def _save_debug_trace(
+        self,
+        request: ChatRequest,
+        outgoing_body: dict[str, Any],
+        status_code: int | None = None,
+        response_text: str | None = None,
+        error: str | None = None,
+    ) -> None:
+        try:
+            debug_data = {
+                "timestamp": utcnow().isoformat(),
+                "incoming_from_client": {
+                    "model_requested": request.model_public,
+                    "model_upstream": request.model_upstream,
+                    "stream": request.stream,
+                    "messages_count": len(request.messages),
+                    "messages": request.messages,
+                    "tools": request.payload.get("tools"),
+                    "raw_payload": request.payload,
+                },
+                "outgoing_to_notrack": {
+                    "url": self._url("/api/dispatch"),
+                    "headers": self._headers(),
+                    "body": outgoing_body,
+                    "user_input_length": len(outgoing_body.get("user_input", "")),
+                },
+                "upstream_response": {
+                    "status_code": status_code,
+                    "response_preview": response_text[:2000] if response_text else None,
+                    "error": error,
+                },
+            }
+            debug_file = Path(__file__).resolve().parent.parent.parent / "debug_notrack_request.json"
+            debug_file.write_text(json.dumps(debug_data, indent=2, ensure_ascii=False), encoding="utf-8")
+        except Exception as e:
+            logger.warning("failed_to_save_debug_trace", extra={"error": str(e)})
+
     # --- non-streaming -------------------------------------------------------
     async def chat(self, request: ChatRequest) -> ChatResult:
         body = self._build_body(request)
@@ -222,11 +260,14 @@ class NotrackProvider(LLMProvider):
                 self._url("/api/dispatch"), json=body, headers=self._headers()
             )
             text = resp.text
+            self._save_debug_trace(request, body, status_code=resp.status_code, response_text=text)
             self._raise_for_status(resp, text)
             events = self._parse_event_lines(text)
         except (httpx.TimeoutException,) as exc:
+            self._save_debug_trace(request, body, error=f"Timeout: {exc}")
             raise UpstreamTimeout() from exc
         except httpx.HTTPError as exc:
+            self._save_debug_trace(request, body, error=f"HTTPError: {exc}")
             raise UpstreamUnavailable(f"Upstream connection error: {exc}") from exc
         return self._to_result(events, request)
 
@@ -243,6 +284,8 @@ class NotrackProvider(LLMProvider):
                 if chunk:
                     deltas.append(chunk)
             elif etype == "message":
+                full_message = event.get("content") or ""
+            elif etype == "error":
                 full_message = event.get("content") or ""
         content = full_message or "".join(deltas)
         return ChatResult(
@@ -270,12 +313,17 @@ class NotrackProvider(LLMProvider):
             ) as resp:
                 if resp.status_code >= 400:
                     err_text = (await resp.aread()).decode("utf-8", "replace")
+                    self._save_debug_trace(request, body, status_code=resp.status_code, response_text=err_text)
                     self._raise_for_status(resp, err_text)
+                else:
+                    self._save_debug_trace(request, body, status_code=resp.status_code, response_text="[Stream Started 200 OK]")
                 async for chunk in self._parse_sse(resp):
                     yield chunk
         except httpx.TimeoutException:
+            self._save_debug_trace(request, body, error="Stream Timeout")
             raise UpstreamTimeout()
         except httpx.HTTPError as exc:
+            self._save_debug_trace(request, body, error=f"Stream HTTPError: {exc}")
             raise UpstreamUnavailable(f"Upstream stream error: {exc}")
 
     async def _parse_sse(self, resp: httpx.Response) -> AsyncIterator[StreamChunk]:
