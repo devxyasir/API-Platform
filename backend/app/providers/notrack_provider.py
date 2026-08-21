@@ -84,15 +84,49 @@ class NotrackProvider(LLMProvider):
             )
         return ""
 
-    def _last_user_text(self, messages: list[dict[str, Any]]) -> str:
-        for message in reversed(messages):
-            if message.get("role") == "user":
-                return self._text_of(message.get("content"))
-        return ""
+    def _format_prompt(self, messages: list[dict[str, Any]]) -> str:
+        """Combine system instructions (request or global config) and conversation history
+        into a unified prompt passed to the notrack dispatch endpoint."""
+        system_prompts: list[str] = []
+        dialogue: list[dict[str, str]] = []
+
+        for msg in messages:
+            role = msg.get("role", "user")
+            content = self._text_of(msg.get("content"))
+            if not content:
+                continue
+            if role == "system":
+                system_prompts.append(content)
+            elif role in ("user", "assistant"):
+                dialogue.append({"role": role, "content": content})
+
+        # Apply global system prompt override from config if caller didn't provide one
+        if not system_prompts and settings.notrack_system_prompt:
+            system_prompts.append(settings.notrack_system_prompt.strip())
+
+        system_instruction = "\n\n".join(system_prompts).strip()
+
+        # If it's a simple single user message with no history:
+        if len(dialogue) == 1 and dialogue[0]["role"] == "user":
+            user_text = dialogue[0]["content"]
+            if system_instruction:
+                return f"[System Instructions:\n{system_instruction}]\n\n{user_text}"
+            return user_text
+
+        # If multi-turn conversation history is present:
+        dialogue_lines: list[str] = []
+        for msg in dialogue:
+            speaker = "User" if msg["role"] == "user" else "Assistant"
+            dialogue_lines.append(f"{speaker}: {msg['content']}")
+
+        dialogue_text = "\n\n".join(dialogue_lines)
+        if system_instruction:
+            return f"[System Instructions:\n{system_instruction}]\n\n{dialogue_text}"
+        return dialogue_text or (system_instruction if system_instruction else "")
 
     def _build_body(self, request: ChatRequest) -> dict[str, Any]:
         body: dict[str, Any] = {
-            "user_input": self._last_user_text(request.messages),
+            "user_input": self._format_prompt(request.messages),
             "mode": settings.notrack_mode,
             "model": request.model_upstream,
             "persona": settings.notrack_persona,

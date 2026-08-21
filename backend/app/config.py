@@ -51,6 +51,7 @@ class Settings(BaseSettings):
     notrack_mode: str = "usual"
     notrack_persona: str = "normal"
     notrack_max_turns: int = 6
+    notrack_system_prompt: str | None = None
 
     # --- Privacy / logging ---
     log_request_content: bool = False
