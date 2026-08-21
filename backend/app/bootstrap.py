@@ -49,7 +49,7 @@ DEFAULT_MODELS = [
         # into a multi-user chat surface. An admin can still flip the flag explicitly.
         "public_id": "notrack-c", "display_name": "Notrack C", "provider": "notrack",
         "upstream_model": "C",
-        "aliases": ["notrack"], "context_window": 8192,
+        "aliases": ["notrack"], "context_window": 262144,
         "input_price_per_1m": 0.0, "output_price_per_1m": 0.0,
         "public_chat": False, "supports_vision": False,
         "description": "Anonymous debate model served by notrack.ai (keyless).",
