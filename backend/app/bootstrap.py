@@ -136,17 +136,25 @@ def _mask_key(key: str) -> str:
 
 
 async def seed_models(session: AsyncSession) -> None:
-    """Create any DEFAULT_MODELS whose public_id is not yet present. Idempotent
-    per model, so providers added later get seeded into existing databases."""
-    existing = set((await session.execute(select(Model.public_id))).scalars().all())
+    """Create any DEFAULT_MODELS whose public_id is not yet present and synchronize
+    context_window / attributes for existing seeded models."""
+    existing_models = {
+        m.public_id: m for m in (await session.execute(select(Model))).scalars().all()
+    }
     created = 0
+    updated = 0
     for spec in DEFAULT_MODELS:
-        if spec["public_id"] in existing:
+        pid = spec["public_id"]
+        if pid in existing_models:
+            model = existing_models[pid]
+            if model.context_window != spec["context_window"]:
+                model.context_window = spec["context_window"]
+                updated += 1
             continue
         session.add(Model(enabled=True, supports_streaming=True, **spec))
         created += 1
-    if created:
-        logger.info("seeded_models", extra={"count": created})
+    if created or updated:
+        logger.info("seeded_models", extra={"created": created, "updated": updated})
 
 
 async def seed_model_prices(session: AsyncSession) -> None:
