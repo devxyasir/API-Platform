@@ -282,3 +282,23 @@ async def test_chat_tool_call_extraction():
     assert len(tool_calls) == 1
     assert tool_calls[0]["function"]["name"] == "glob"
     assert json.loads(tool_calls[0]["function"]["arguments"]) == {"pattern": "*.apk"}
+
+
+async def test_chat_command_phrase_extraction():
+    command_sse = (
+        'data: {"type":"chat_meta","chat_id":"c123"}\n'
+        'data: {"type":"message","content":"No directory listing available in the HTML payload. Run this yourself:\\n`ls -la`"}\n'
+        'data: {"type":"done"}\n'
+    )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(lambda _: httpx.Response(200, text=command_sse))) as client:
+        provider = NotrackProvider(client)
+        req = _request()
+        req.payload["tools"] = [{"type": "function", "function": {"name": "bash"}}]
+        res = await provider.chat(req)
+
+    assert res.choices[0]["finish_reason"] == "tool_calls"
+    tool_calls = res.choices[0]["message"]["tool_calls"]
+    assert len(tool_calls) == 1
+    assert tool_calls[0]["function"]["name"] == "bash"
+    assert json.loads(tool_calls[0]["function"]["arguments"]) == {"command": "ls -la"}

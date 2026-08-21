@@ -245,6 +245,43 @@ class NotrackProvider(LLMProvider):
                 })
                 cleaned_text = cleaned_text.replace(full_match, "").strip()
 
+        if tool_calls:
+            return cleaned_text, tool_calls
+
+        # 3. Match bash/cmd code blocks or suggestions like "Run this: `ls -la`" or "```bash\nls -la\n```"
+        if "bash" in available_names:
+            # Code blocks with bash/sh/powershell/cmd
+            shell_block = re.search(r'```(?:bash|sh|powershell|cmd|shell)\s*\n([^\n`]+(?:\n[^\n`]+)*?)\n```', text, re.IGNORECASE)
+            if shell_block:
+                cmd = shell_block.group(1).strip()
+                if cmd and not cmd.startswith("glob(") and not cmd.startswith("read(") and not cmd.startswith("edit("):
+                    tool_calls.append({
+                        "id": f"call_{secrets.token_hex(8)}",
+                        "type": "function",
+                        "function": {
+                            "name": "bash",
+                            "arguments": json.dumps({"command": cmd}),
+                        },
+                    })
+                    cleaned_text = cleaned_text.replace(shell_block.group(0), "").strip()
+                    return cleaned_text, tool_calls
+
+            # Inline phrases like "Run this yourself: `ls -la`" or "`ls -la`"
+            run_cmd_match = re.search(r'(?:Run this yourself|Run this|Execute|Command|Run):\s*\n?`([^`\n]+)`', text, re.IGNORECASE)
+            if run_cmd_match:
+                cmd = run_cmd_match.group(1).strip()
+                if cmd:
+                    tool_calls.append({
+                        "id": f"call_{secrets.token_hex(8)}",
+                        "type": "function",
+                        "function": {
+                            "name": "bash",
+                            "arguments": json.dumps({"command": cmd}),
+                        },
+                    })
+                    cleaned_text = cleaned_text.replace(run_cmd_match.group(0), "").strip()
+                    return cleaned_text, tool_calls
+
         return cleaned_text, tool_calls
 
     def _format_prompt(
@@ -276,49 +313,65 @@ class NotrackProvider(LLMProvider):
             elif role in ("user", "assistant"):
                 dialogue.append({"role": role, "content": content})
 
-        # 3. Include compact tool definitions declared by the agent
-        if payload:
-            tools_desc = self._format_tools(payload)
-            if tools_desc:
-                system_prompts.append(tools_desc)
+        # Priority-aware budgeting: Always prioritize Tools + Action Directive + User Query
+        tools_block = self._format_tools(payload) if payload else ""
+        action_directive = (
+            "\n\nCRITICAL ACTION DIRECTIVE:\n"
+            "You are an autonomous execution agent. When the user asks you to inspect files, directory, or execute tasks, you MUST invoke a tool!\n"
+            "Never ask the user to run commands themselves. To run a command or find files, output ONLY:\n"
+            "```tool_call\n"
+            '{"name": "bash", "arguments": {"command": "dir"}}\n'
+            "```\n"
+            "or\n"
+            "```tool_call\n"
+            '{"name": "glob", "arguments": {"pattern": "*.*"}}\n'
+            "```"
+        ) if tools_block else ""
 
-        system_instruction = "\n\n".join(system_prompts).strip()
+        full_tools_section = (tools_block + action_directive).strip()
 
-        # If it's a simple single user message with no history:
+        # Build raw dialogue
         if len(dialogue) == 1 and dialogue[0]["role"] == "user":
-            user_text = dialogue[0]["content"]
-            if system_instruction:
-                formatted = f"[System Instructions:\n{system_instruction}]\n\n{user_text}"
-            else:
-                formatted = user_text
+            dialogue_text = dialogue[0]["content"]
         else:
-            # Multi-turn history: Keep the most recent turns that fit budget
-            recent_dialogue = dialogue[-6:] if len(dialogue) > 6 else dialogue
+            recent_dialogue = dialogue[-4:] if len(dialogue) > 4 else dialogue
             dialogue_lines: list[str] = []
             for msg in recent_dialogue:
                 speaker = "User" if msg["role"] == "user" else "Assistant"
-                # Trim overly long assistant outputs in history
                 turn_content = msg["content"]
-                if len(turn_content) > 500:
-                    turn_content = turn_content[:500] + "... [truncated]"
+                if len(turn_content) > 300:
+                    turn_content = turn_content[:300] + "..."
                 dialogue_lines.append(f"{speaker}: {turn_content}")
-
             dialogue_text = "\n\n".join(dialogue_lines)
-            if system_instruction:
-                formatted = f"[System Instructions:\n{system_instruction}]\n\n{dialogue_text}"
-            else:
-                formatted = dialogue_text or (system_instruction if system_instruction else "")
 
-        # Strict safety cap: Upstream notrack.ai enforces max 4000 chars on user_input
-        max_limit = 3900
+        # Budget: Max 3850 characters
+        max_limit = 3850
+        fixed_size = len(dialogue_text) + len(full_tools_section) + 80
+        avail_for_persona = max(0, max_limit - fixed_size)
+
+        # Assemble base persona & guidelines within available space
+        persona_text = ""
+        if avail_for_persona > 100:
+            raw_persona = "\n\n".join(system_prompts).strip()
+            if len(raw_persona) <= avail_for_persona:
+                persona_text = raw_persona
+            else:
+                persona_text = raw_persona[:avail_for_persona].rsplit("\n", 1)[0]
+
+        components = []
+        if persona_text:
+            components.append(persona_text)
+        if full_tools_section:
+            components.append(full_tools_section)
+
+        sys_header = "\n\n".join(components).strip()
+        if sys_header:
+            formatted = f"[System Instructions:\n{sys_header}]\n\n{dialogue_text}"
+        else:
+            formatted = dialogue_text
+
         if len(formatted) > max_limit:
-            # Keep user text intact, truncate system instructions from head
-            last_turn = dialogue[-1]["content"] if dialogue else ""
-            avail_for_sys = max(100, max_limit - len(last_turn) - 40)
-            trimmed_sys = system_instruction[:avail_for_sys].rsplit("\n", 1)[0]
-            formatted = f"[System Instructions:\n{trimmed_sys}]\n\nUser: {last_turn}"
-            if len(formatted) > max_limit:
-                formatted = formatted[:max_limit]
+            formatted = formatted[:max_limit]
 
         return formatted
 
