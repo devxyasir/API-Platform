@@ -43,10 +43,6 @@ DEFAULT_MODELS = [
         "description": "Legacy fast model.",
     },
     {
-        # Kept reachable on /v1 for the deployment owner, but deliberately NOT offered in
-        # the public chat product (public_chat stays False): the shared trace showed this
-        # keyless upstream being used to work around AI-safety refusals, so it is not wired
-        # into a multi-user chat surface. An admin can still flip the flag explicitly.
         "public_id": "notrack-c", "display_name": "Notrack C", "provider": "notrack",
         "upstream_model": "C",
         "aliases": ["notrack"], "context_window": 262144,
@@ -154,7 +150,7 @@ async def seed_models(session: AsyncSession) -> None:
         session.add(Model(enabled=True, supports_streaming=True, **spec))
         created += 1
     if created or updated:
-        logger.info("seeded_models", extra={"created": created, "updated": updated})
+        logger.info("seeded_models", extra={"created_count": created, "updated_count": updated})
 
 
 async def seed_model_prices(session: AsyncSession) -> None:
