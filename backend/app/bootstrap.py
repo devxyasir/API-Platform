@@ -43,12 +43,12 @@ DEFAULT_MODELS = [
         "description": "Legacy fast model.",
     },
     {
-        "public_id": "notrack-c", "display_name": "Notrack C", "provider": "notrack",
+        "public_id": "notrack-c", "display_name": "BH-9 (BlackHat-9)", "provider": "notrack",
         "upstream_model": "C",
-        "aliases": ["notrack"], "context_window": 262144,
+        "aliases": ["notrack", "bh-9", "blackhat-9"], "context_window": 262144,
         "input_price_per_1m": 0.0, "output_price_per_1m": 0.0,
         "public_chat": False, "supports_vision": False,
-        "description": "Anonymous debate model served by notrack.ai (keyless).",
+        "description": "Unrestricted high-performance model served via devxyasir platform.",
     },
 ]
 
@@ -145,6 +145,12 @@ async def seed_models(session: AsyncSession) -> None:
             model = existing_models[pid]
             if model.context_window != spec["context_window"]:
                 model.context_window = spec["context_window"]
+                updated += 1
+            if model.aliases != spec.get("aliases"):
+                model.aliases = spec.get("aliases")
+                updated += 1
+            if model.display_name != spec.get("display_name"):
+                model.display_name = spec.get("display_name")
                 updated += 1
             continue
         session.add(Model(enabled=True, supports_streaming=True, **spec))

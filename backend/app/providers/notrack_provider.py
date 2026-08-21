@@ -84,12 +84,44 @@ class NotrackProvider(LLMProvider):
             )
         return ""
 
-    def _format_prompt(self, messages: list[dict[str, Any]]) -> str:
-        """Combine system instructions (request or global config) and conversation history
-        into a unified prompt passed to the notrack dispatch endpoint."""
+    def _format_tools(self, payload: dict[str, Any]) -> str:
+        tools = payload.get("tools") or []
+        functions = payload.get("functions") or []
+        if not tools and not functions:
+            return ""
+
+        tool_descriptions: list[str] = []
+        for t in tools:
+            if isinstance(t, dict):
+                fn = t.get("function", t)
+                name = fn.get("name", "tool")
+                desc = fn.get("description", "")
+                params = fn.get("parameters", {})
+                tool_descriptions.append(f"- {name}: {desc}\n  Parameters: {json.dumps(params)}")
+        for f in functions:
+            if isinstance(f, dict):
+                name = f.get("name", "function")
+                desc = f.get("description", "")
+                params = f.get("parameters", {})
+                tool_descriptions.append(f"- {name}: {desc}\n  Parameters: {json.dumps(params)}")
+
+        if tool_descriptions:
+            return "Available Tools / Functions:\n" + "\n".join(tool_descriptions)
+        return ""
+
+    def _format_prompt(
+        self, messages: list[dict[str, Any]], payload: dict[str, Any] | None = None
+    ) -> str:
+        """Combine base persona (from config), caller agent system instructions, tool definitions,
+        and conversation history into a unified prompt passed to the notrack dispatch endpoint."""
         system_prompts: list[str] = []
         dialogue: list[dict[str, str]] = []
 
+        # 1. Base system prompt from backend configuration (.env)
+        if settings.notrack_system_prompt:
+            system_prompts.append(settings.notrack_system_prompt.strip())
+
+        # 2. Extract caller agent's system prompts and user/assistant dialogue turns
         for msg in messages:
             role = msg.get("role", "user")
             content = self._text_of(msg.get("content"))
@@ -100,9 +132,11 @@ class NotrackProvider(LLMProvider):
             elif role in ("user", "assistant"):
                 dialogue.append({"role": role, "content": content})
 
-        # Apply global system prompt override from config if caller didn't provide one
-        if not system_prompts and settings.notrack_system_prompt:
-            system_prompts.append(settings.notrack_system_prompt.strip())
+        # 3. Include any tool definitions declared by the agent
+        if payload:
+            tools_desc = self._format_tools(payload)
+            if tools_desc:
+                system_prompts.append(tools_desc)
 
         system_instruction = "\n\n".join(system_prompts).strip()
 
@@ -126,7 +160,7 @@ class NotrackProvider(LLMProvider):
 
     def _build_body(self, request: ChatRequest) -> dict[str, Any]:
         body: dict[str, Any] = {
-            "user_input": self._format_prompt(request.messages),
+            "user_input": self._format_prompt(request.messages, request.payload),
             "mode": settings.notrack_mode,
             "model": request.model_upstream,
             "persona": settings.notrack_persona,

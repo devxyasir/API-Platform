@@ -8,11 +8,17 @@ import json
 import httpx
 import pytest
 
+from app.config import settings
 from app.providers.base import ChatRequest
 from app.providers.errors import UpstreamError
 from app.providers.notrack_provider import NotrackProvider
 
 pytestmark = pytest.mark.asyncio
+
+
+@pytest.fixture(autouse=True)
+def _reset_notrack_system_prompt(monkeypatch):
+    monkeypatch.setattr(settings, "notrack_system_prompt", None)
 
 SSE_BODY = (
     'data: {"type":"chat_meta","chat_id":"4f72c010-c6bc-44bb-9fac-56aa2da2d771","mode":"usual"}\n\n'
@@ -186,3 +192,52 @@ async def test_health_check_uses_chats_endpoint():
     assert captured["url"].endswith("/api/chats")
     assert ok is True
     assert latency is not None
+
+
+async def test_chat_with_agent_system_prompt_and_tools():
+    captured = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["body"] = json.loads(request.content)
+        return httpx.Response(200, text=SSE_BODY)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        provider = NotrackProvider(client)
+        req = _request()
+        req.payload["messages"] = [
+            {"role": "system", "content": "You are OpenCode coding agent."},
+            {"role": "user", "content": "Refactor auth logic"},
+        ]
+        req.payload["tools"] = [
+            {
+                "type": "function",
+                "function": {
+                    "name": "edit_file",
+                    "description": "Edit lines in a file",
+                    "parameters": {"type": "object", "properties": {"path": {"type": "string"}}},
+                },
+            }
+        ]
+        await provider.chat(req)
+
+    user_input = captured["body"]["user_input"]
+    assert "You are OpenCode coding agent." in user_input
+    assert "edit_file: Edit lines in a file" in user_input
+    assert "Refactor auth logic" in user_input
+
+
+async def test_chat_with_env_system_prompt_override(monkeypatch):
+    monkeypatch.setattr(settings, "notrack_system_prompt", "You are BH-9 (BlackHat-9) provided by devxyasir.")
+    captured = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["body"] = json.loads(request.content)
+        return httpx.Response(200, text=SSE_BODY)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        provider = NotrackProvider(client)
+        await provider.chat(_request())
+
+    user_input = captured["body"]["user_input"]
+    assert "You are BH-9 (BlackHat-9) provided by devxyasir." in user_input
+    assert "hello notrack" in user_input
