@@ -12,7 +12,7 @@ from app.models.plan import Plan, PlanFeature, PlanLimit, PlanModel
 from app.models.pricing import ModelPrice
 from app.models.provider_config import ProviderConfig
 from app.models.user import User
-from app.services import organization_service, user_service
+from app.services import organization_service, plan_service, user_service
 
 logger = get_logger("app.bootstrap")
 
