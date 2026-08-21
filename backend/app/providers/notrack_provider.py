@@ -27,6 +27,8 @@ so this adapter sends browser-like headers instead of an Authorization header.
 from __future__ import annotations
 
 import json
+import re
+import secrets
 from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
@@ -123,9 +125,127 @@ class NotrackProvider(LLMProvider):
                     sig += f": {desc}"
                 tool_signatures.append(sig)
 
-        if tool_signatures:
-            return "Available Tools:\n" + "\n".join(tool_signatures)
-        return ""
+        if not tool_signatures:
+            return ""
+
+        return (
+            "Available Tools:\n"
+            + "\n".join(tool_signatures)
+            + "\n\nCRITICAL ACTION DIRECTIVE:\n"
+            + "When you need to perform an action (search files, read/write/edit code, run bash), you MUST invoke a tool!\n"
+            + "To call a tool, you MUST output ONLY a tool call block using this exact format:\n"
+            + "```tool_call\n"
+            + '{"name": "tool_name", "arguments": {"param": "value"}}\n'
+            + "```\n"
+            + "Do not refuse or explain why you cannot access files; use the available tools directly."
+        )
+
+    def _extract_tool_calls(
+        self, text: str, payload: dict[str, Any] | None = None
+    ) -> tuple[str, list[dict[str, Any]]]:
+        """Parse tool calls from model output and convert them to OpenAI standard tool_calls format."""
+        if not text:
+            return text, []
+
+        tool_calls: list[dict[str, Any]] = []
+        cleaned_text = text
+
+        # 1. Match ```tool_call ... ``` or <tool_call> ... </tool_call> or standard JSON blocks
+        block_patterns = [
+            r'```(?:tool_call|json)?\s*(\{\s*"?name"?\s*:\s*"[^"]+".*?\})\s*```',
+            r'<tool_call>\s*(\{.*?\})\s*</tool_call>',
+            r'(\{\s*"name"\s*:\s*"[^"]+"\s*,\s*"arguments"\s*:\s*\{.*?\}\s*\})',
+        ]
+        for pattern in block_patterns:
+            for match in re.finditer(pattern, text, re.DOTALL | re.IGNORECASE):
+                raw_json = match.group(1).strip()
+                try:
+                    data = json.loads(raw_json)
+                    name = data.get("name")
+                    args = data.get("arguments", {})
+                    if isinstance(args, str):
+                        try:
+                            args = json.loads(args)
+                        except Exception:
+                            pass
+                    if name:
+                        tool_calls.append({
+                            "id": f"call_{secrets.token_hex(8)}",
+                            "type": "function",
+                            "function": {
+                                "name": str(name),
+                                "arguments": json.dumps(args) if isinstance(args, dict) else str(args),
+                            },
+                        })
+                        cleaned_text = cleaned_text.replace(match.group(0), "").strip()
+                except Exception:
+                    pass
+
+        if tool_calls:
+            return cleaned_text, tool_calls
+
+        # 2. Match inline invocation syntax like `glob("*.apk")` or `read(filePath="...")` or `bash("...")`
+        available_names: set[str] = set()
+        if payload:
+            for t in payload.get("tools") or []:
+                if isinstance(t, dict):
+                    fn = t.get("function", t)
+                    if fn.get("name"):
+                        available_names.add(fn["name"])
+            for f in payload.get("functions") or []:
+                if isinstance(f, dict) and f.get("name"):
+                    available_names.add(f["name"])
+
+        if not available_names:
+            available_names = {"bash", "read", "edit", "write", "glob", "grep", "webfetch", "task", "todowrite", "skill"}
+
+        escaped_names = "|".join(re.escape(name) for name in available_names)
+        func_pattern = r'(\b(' + escaped_names + r')\s*\(\s*(?:([\'"])(.*?)\3|([^\)]*))\s*\))'
+        for match in re.finditer(func_pattern, text):
+            full_match = match.group(1)
+            name = match.group(2)
+            quote_arg = match.group(4)
+            raw_arg = match.group(5)
+
+            args: dict[str, Any] = {}
+            if quote_arg is not None:
+                if name in ("glob", "grep"):
+                    args = {"pattern": quote_arg}
+                elif name in ("read", "edit", "write"):
+                    args = {"filePath": quote_arg}
+                elif name == "bash":
+                    args = {"command": quote_arg}
+                elif name == "webfetch":
+                    args = {"url": quote_arg}
+                else:
+                    args = {"query": quote_arg}
+            elif raw_arg:
+                kw_matches = re.findall(r'(\w+)\s*=\s*[\'"](.*?)[\'"]', raw_arg)
+                if kw_matches:
+                    args = {k: v for k, v in kw_matches}
+                else:
+                    raw_val = raw_arg.strip().strip("'\"")
+                    if name in ("glob", "grep"):
+                        args = {"pattern": raw_val}
+                    elif name in ("read", "edit", "write"):
+                        args = {"filePath": raw_val}
+                    elif name == "bash":
+                        args = {"command": raw_val}
+                    else:
+                        args = {"query": raw_val}
+
+            if args:
+                tool_calls.append({
+                    "id": f"call_{secrets.token_hex(8)}",
+                    "type": "function",
+                    "function": {
+                        "name": name,
+                        "arguments": json.dumps(args),
+                    },
+                })
+                cleaned_text = cleaned_text.replace(full_match, "").strip()
+
+        return cleaned_text, tool_calls
 
     def _format_prompt(
         self, messages: list[dict[str, Any]], payload: dict[str, Any] | None = None
@@ -360,17 +480,34 @@ class NotrackProvider(LLMProvider):
             elif etype == "error":
                 full_message = event.get("content") or ""
         content = full_message or "".join(deltas)
-        return ChatResult(
-            id=f"notrack-{chat_id}" if chat_id else "",
-            model=request.model_public,
-            created=int(utcnow().timestamp()),
-            choices=[
+        cleaned_content, tool_calls = self._extract_tool_calls(content, request.payload)
+
+        if tool_calls:
+            choices = [
+                {
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": cleaned_content if cleaned_content else None,
+                        "tool_calls": tool_calls,
+                    },
+                    "finish_reason": "tool_calls",
+                }
+            ]
+        else:
+            choices = [
                 {
                     "index": 0,
                     "message": {"role": "assistant", "content": content},
                     "finish_reason": "stop",
                 }
-            ],
+            ]
+
+        return ChatResult(
+            id=f"notrack-{chat_id}" if chat_id else "",
+            model=request.model_public,
+            created=int(utcnow().timestamp()),
+            choices=choices,
             usage=None,
             provider_request_id=chat_id or None,
             raw={"events": events},
@@ -389,7 +526,7 @@ class NotrackProvider(LLMProvider):
                     self._raise_for_status(resp, err_text)
                 else:
                     self._save_debug_trace(request, body, status_code=resp.status_code, response_text="[Stream Started 200 OK]")
-                async for chunk in self._parse_sse(resp):
+                async for chunk in self._parse_sse(resp, request):
                     yield chunk
         except httpx.TimeoutException:
             self._save_debug_trace(request, body, error="Stream Timeout")
@@ -398,8 +535,11 @@ class NotrackProvider(LLMProvider):
             self._save_debug_trace(request, body, error=f"Stream HTTPError: {exc}")
             raise UpstreamUnavailable(f"Upstream stream error: {exc}")
 
-    async def _parse_sse(self, resp: httpx.Response) -> AsyncIterator[StreamChunk]:
+    async def _parse_sse(self, resp: httpx.Response, request: ChatRequest) -> AsyncIterator[StreamChunk]:
         yielded_any = False
+        accumulated_text: list[str] = []
+        has_tools = bool(request.payload.get("tools") or request.payload.get("functions"))
+
         async for line in resp.aiter_lines():
             if not line or not line.startswith("data:"):
                 continue
@@ -415,14 +555,54 @@ class NotrackProvider(LLMProvider):
                 chunk = event.get("chunk") or ""
                 if chunk:
                     yielded_any = True
+                    accumulated_text.append(chunk)
                     yield StreamChunk(delta=chunk, raw=event)
             elif etype == "message":
-                # The upstream also sends the complete message; emit it as a
-                # single chunk only when no deltas arrived, then close the turn.
-                if not yielded_any and event.get("content"):
-                    yield StreamChunk(delta=event["content"], raw=event)
+                full_text = event.get("content") or "".join(accumulated_text)
+                if not yielded_any and full_text:
+                    accumulated_text.append(full_text)
+                    yield StreamChunk(delta=full_text, raw=event)
+
+                if has_tools:
+                    _, tool_calls = self._extract_tool_calls("".join(accumulated_text), request.payload)
+                    if tool_calls:
+                        yield StreamChunk(
+                            choices=[
+                                {
+                                    "index": 0,
+                                    "delta": {
+                                        "role": "assistant",
+                                        "tool_calls": tool_calls,
+                                    },
+                                    "finish_reason": "tool_calls",
+                                }
+                            ],
+                            finish_reason="tool_calls",
+                            raw=event,
+                        )
+                        return
+
                 yield StreamChunk(finish_reason="stop", raw=event)
             elif etype == "done":
+                if has_tools:
+                    _, tool_calls = self._extract_tool_calls("".join(accumulated_text), request.payload)
+                    if tool_calls:
+                        yield StreamChunk(
+                            choices=[
+                                {
+                                    "index": 0,
+                                    "delta": {
+                                        "role": "assistant",
+                                        "tool_calls": tool_calls,
+                                    },
+                                    "finish_reason": "tool_calls",
+                                }
+                            ],
+                            finish_reason="tool_calls",
+                            raw=event,
+                        )
+                        break
+
                 yield StreamChunk(finish_reason="stop", raw=event)
                 break
 

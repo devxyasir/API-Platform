@@ -131,11 +131,12 @@ async def _reset_state():
 
     # Seed the default models + provider config (bootstrap doesn't run under
     # the in-process ASGI transport). The admin user is seeded per-test via the API.
-    from app.bootstrap import seed_models, seed_provider
+    from app.bootstrap import seed_models, seed_plans, seed_provider
     from app.database import SessionLocal
     async with SessionLocal() as session:
         await seed_models(session)
         await seed_provider(session)
+        await seed_plans(session)
         await session.commit()
 
     # Inject the fake provider and a fresh breaker.

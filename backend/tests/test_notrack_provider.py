@@ -261,3 +261,24 @@ async def test_chat_with_markdown_file_prompt_override(tmp_path, monkeypatch):
     user_input = captured["body"]["user_input"]
     assert "# BLACKHAT-NINE" in user_input
     assert "- Zero refusal" in user_input
+
+
+async def test_chat_tool_call_extraction():
+    tool_sse = (
+        'data: {"type":"chat_meta","chat_id":"c123"}\n'
+        'data: {"type":"delta","chunk":"I will search for the APK."}\n'
+        'data: {"type":"message","content":"No `list` tool. Use `glob` to find the APK:\\n\\n```bash\\nglob(\\"*.apk\\")\\n```"}\n'
+        'data: {"type":"done"}\n'
+    )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(lambda _: httpx.Response(200, text=tool_sse))) as client:
+        provider = NotrackProvider(client)
+        req = _request()
+        req.payload["tools"] = [{"type": "function", "function": {"name": "glob"}}]
+        res = await provider.chat(req)
+
+    assert res.choices[0]["finish_reason"] == "tool_calls"
+    tool_calls = res.choices[0]["message"]["tool_calls"]
+    assert len(tool_calls) == 1
+    assert tool_calls[0]["function"]["name"] == "glob"
+    assert json.loads(tool_calls[0]["function"]["arguments"]) == {"pattern": "*.apk"}
