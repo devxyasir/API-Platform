@@ -1,5 +1,6 @@
 # LLM Gateway
 <a href="https://trendshift.io/repositories/21917?utm_source=repository-badge&amp;utm_medium=badge&amp;utm_campaign=badge-repository-21917" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/repositories/21917" alt="opendataloader-project%2Fopendataloader-pdf | Trendshift" width="250" height="55"/></a>
+
 A small, self-hosted, **OpenAI- and Anthropic-compatible** API gateway in front of
 **your own** upstream LLM account (e.g. your personal OpenAI key). Point any SDK,
 editor, or tool that speaks the OpenAI or Anthropic wire format at this gateway and
